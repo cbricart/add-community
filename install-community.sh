@@ -24,11 +24,11 @@ function input_str { # $1 is output
   done
 }
 
-servername="rig"
-servernumber="04" #for ipv6 cXX
-server_pubip4="62.141.34.115"
-server_pubip6=""
-gateway_ip4="1" # 10.xx.n.0 we set n here
+servername="bragi"
+servernumber="02" #for ipv6 cXX
+server_pubip4="46.38.232.72"
+server_pubip6="2a03:4000:2:453::2"
+gateway_ip4="11" # 10.xx.n.0 we set n here
 
 community=""
 community_short=""
