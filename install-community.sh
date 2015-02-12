@@ -29,6 +29,8 @@ servernumber="02" #for ipv6 cXX
 server_pubip4="46.38.232.72"
 server_pubip6="2a03:4000:2:453::2"
 gateway_ip4="11" # 10.xx.n.0 we set n here
+bPublic_ip6=0
+radvd_AdvLinkMTU=1448
 
 community=""
 community_short=""
@@ -137,11 +139,34 @@ netctl enable freifunk-$community_short
 systemctl enable fastd@$community
 systemctl start fastd@$community
 
+#generate blockranges
+blockranges=""
+if [ $gateway_ip4 -eq 1 ]; then
+  blockranges="  pool {\n\
+    range 10.$ipv4_2.11.1 10.$ipv4_2.254.255;\n\
+    deny all clients;\n\
+  }"
+else
+  blockonestart=$(expr $gateway_ip4 - 10)
+  blockoneend=$(expr $gateway_ip4 - 1)
+  blocktwostart=$(expr $gateway_ip4 + 19)
+  blockranges="    pool {\n\
+        range 10.$ipv4_2.$blockonestart.1 10.$ipv4_2.$blockoneend.255;\n\
+        deny all clients;\n\
+    }\n\
+    pool {\n\
+        range 10.$ipv4_2.$blocktwostart.1 10.$ipv4_2.254.255;\n\
+        deny all clients;\n\
+    }"
+fi
+
+
 sed -i -e "s/#=+#/\n\
 # $community.freifunk.net subnet and dhcp range for server\n\
 \n\
 subnet 10.$ipv4_2.0.0 netmask 255.255.0.0 {\n\
-  range 10.$ipv4_2.$gateway_ip4.1 10.$ipv4_2.$(expr $gateway_ip4 + 9).255;\n\
+  range 10.$ipv4_2.$gateway_ip4.1 10.$ipv4_2.$(expr $gateway_ip4 + 9).255; #main\n\
+  $blockranges\n\
   option broadcast-address 10.$ipv4_2.255.255;\n\
   option routers 10.$ipv4_2.$gateway_ip4.0;\n\
   option domain-name-servers 10.$ipv4_2.$gateway_ip4.0;\n\
@@ -155,17 +180,60 @@ systemctl restart dhcpd4
 
 sed -i -e "s/\/\/#6+#/fda0:747e:ab29:$dialing_code::c$servernumber;\n\
         \/\/#6+#/" /etc/named.conf
-        
+
+if [ $bPublic_ip6 -eq 1 ]; then
+  sed -i -e "s/\/\/#6+#/2001:bf7:100:$dialing_code::c$servernumber;\n\
+        \/\/#6+#/" /etc/named.conf
+fi
+
 sed -i -e "s/\/\/#4+#/10.$ipv4_2.$gateway_ip4.0;\n\
         \/\/#4+#/" /etc/named.conf
 
 systemctl restart named
 
-#radvd missing
+if [ $bPublic_ip6 -eq 1 ]; then
+  sed -i -e "s/#=+#/\n\
+  interface freifunk-$community_short #$community\n\
+  {\n\
+      AdvSendAdvert on;\n\
+      IgnoreIfMissing on;\n\
+      MaxRtrAdvInterval 200;\n\
+      AdvLinkMTU $radvd_AdvLinkMTU;\n\
+  \n\
+      prefix 2001:bf7:100:$dialing_code::/64\n\
+      {\n\
+      };\n\
+  \n\
+      RDNSS 2001:bf7:100:$dialing_code::c$servernumber\n\
+      {\n\
+      };\n\
+  };\n\
+  #=+#/" /etc/radvd.conf
+  
+  systemctl restart radvd
+fi
 
-#bird missing
+#configure bird
+sed -i -e "s/#=+1#/\n\
+  if net ~ 10.$ipv4_2.0.0/16 then reject;\n\
+  #=+1#/" /etc/bird.conf
 
-#bird6 missing 
+sed -i -e "s/#=+2#/\n\
+  route 10.$ipv4_2.0.0/16 via "freifunk-$community_short";\n\
+  #=+2#/" /etc/bird.conf
+systemctl restart bird
+
+#configure bird6
+if [ $bPublic_ip6 -eq 1 ]; then
+  sed -i -e "s/#=+1#/\n\
+    route 2001:bf7:100:$dialing_code::/64 via "freifunk-$community_short";\n\
+    #=+1#/" /etc/bird6.conf
+fi
+
+sed -i -e "s/#=+2#/\n\
+  route fda0:747e:ab29:$dialing_code::/64 via "freifunk-$community_short";\n\
+  #=+2#/" /etc/bird6.conf
+systemctl restart bird6
 
 systemctl restart ntpd
 
